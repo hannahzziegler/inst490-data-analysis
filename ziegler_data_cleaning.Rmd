@@ -160,16 +160,16 @@ orlando_acs_education_metadata <- read_csv("data/Dept_35-00016/35-00016_ACS_data
 
 ```{r}
 
-charlotte_use_of_force <- read_csv("data/Dept_35-00103/35-00103_UOF-OIS-P_prepped.csv")
+charlotte_officer_involved <- read_csv("data/Dept_35-00103/35-00103_UOF-OIS-P_prepped.csv")
 # data is from the charlotte police department
 # data contains 76 police use of force instances between 2005 and 2018
 
-charlotte_use_of_force <- charlotte_use_of_force %>%
+charlotte_officer_involved <- charlotte_officer_involved %>%
   clean_names() %>%
   slice(-1) %>%
   mutate(across(where(is.character), ~na_if(., "Unknown")))
 
-charlotte_use_of_force %>%
+charlotte_officer_involved %>%
   group_by(subject_race) %>%
   summarise(count = n())
 
