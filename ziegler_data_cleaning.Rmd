@@ -21,11 +21,11 @@ library(foreign)
 This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. 
 
 Cleaning data for
-* Dept_24-00098 = City of St. Paul, Minneapolis
-* Dept_35-00016
-* Dept_35-00103
+* Dept_24-00098 = St. Paul
+* Dept_35-00016 = Orlando
+* Dept_35-00103 = Charlotte
 
-# Dept_24-00098
+# Dept_24-00098 = St. Paul
 
 ```{r cars}
 
@@ -97,7 +97,7 @@ st_paul_acs_employment <- read_csv("data/Dept_24-00098/24-00098_ACS_data/24-0009
 ```
 
 
-# Dept_35-00016
+# Dept_35-00016 = Orlando
 
 ```{r pressure, echo=FALSE}
 
@@ -156,7 +156,7 @@ orlando_acs_education_metadata <- read_csv("data/Dept_35-00016/35-00016_ACS_data
 
 ```
 
-# Dept_35-00103
+# Dept_35-00103 = Charlotte
 
 ```{r}
 
