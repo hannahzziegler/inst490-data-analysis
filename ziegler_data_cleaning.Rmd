@@ -1,0 +1,183 @@
+---
+title: "data_cleaning_ziegler"
+output: html_document
+date: "2024-03-30"
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(janitor)
+library(sf)
+library(tigris)
+# install.packages("foreign")
+library(foreign)
+
+
+```
+
+## Cleaning Center for Policing Equity Data
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. 
+
+Cleaning data for
+* Dept_24-00098 = City of St. Paul, Minneapolis
+* Dept_35-00016
+* Dept_35-00103
+
+# Dept_24-00098
+
+```{r cars}
+
+#load vehicle stops data
+st_paul_vehicle_stops <- read_csv("data/Dept_24-00098/24-00098_Vehicle-Stops-data.csv")
+
+# standardize column names + remove first row with column descriptions
+st_paul_vehicle_stops <- st_paul_vehicle_stops %>%
+  clean_names() %>%
+  slice(-1)
+
+# 710,000ish total stops aggregated here
+# split into date and time columns
+st_paul_vehicle_stops <- separate(st_paul_vehicle_stops, incident_date, c("incident_date", "incident_time"), sep = " ")
+
+# data shows all given stops for a specific department across what years?
+st_paul_vehicle_stops %>%
+  group_by(incident_date_year) %>%
+  summarise(count = n()) 
+
+# this data contains information about police traffic stops between 2001 2017
+
+# are there any values where subject_age is not NA?
+st_paul_vehicle_stops %>%
+  filter(is.na(subject_age))
+# About 85% of the age values in this data are NAs, so I would not use it to deduce any information about what age group is most frequently stopped
+
+st_paul_vehicle_stops %>%
+  group_by(subject_race) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+# need to clean race column to make "Native American" and "Native Am" the same 
+st_paul_vehicle_stops <- st_paul_vehicle_stops %>%
+  mutate(subject_race = case_when(
+    subject_race == "Native Am" ~ "Native American",
+    TRUE ~ subject_race), 
+    across(where(is.character), ~na_if(., "No Data")))
+
+# checking all other columns in vehicle_stops data
+st_paul_vehicle_stops %>%
+  group_by(subject_race) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+# gender = good, year = good, time = good, person search = good, vehicle search = good, citation issued = good, age = good, incident_reason = good, location_district = good, latitude = good, longitude = good
+
+#load shapefile data
+st_paul_shapefile <- st_read("data/Dept_24-00098/24-00098_Shapefiles/StPaul_geo_export_6646246d-0f26-48c5-a924-f5a99bb51c47.shp")
+
+st_paul_shapefile %>%
+  ggplot() + 
+  geom_sf() + 
+  theme_minimal()
+  
+# shapefile looks great! that is indeed St. Paul, Minn. based on this shapefile found on the city's GIS site: https://stpaul.maps.arcgis.com/apps/webappviewer/index.html?id=21c68099a3124881b4411859ff66c3e3
+
+st_paul_dbf <- read.dbf("data/Dept_24-00098/24-00098_Shapefiles/StPaul_geo_export_6646246d-0f26-48c5-a924-f5a99bb51c47.dbf", as.is = F)
+
+# ACS data files have a duplicate folder for employment
+
+st_paul_acs_education_metadata <- read_csv("data/Dept_24-00098/24-00098_ACS_data/24-00098_ACS_education-attainment/ACS_15_5YR_S1501_metadata.csv")
+# metadata file contains all of the column names and what their values correspond to based on census descriptions
+
+st_paul_acs_education_with_ann <- read_csv("data/Dept_24-00098/24-00098_ACS_data/24-00098_ACS_education-attainment/ACS_15_5YR_S1501_with_ann.csv")
+
+st_paul_acs_employment <- read_csv("data/Dept_24-00098/24-00098_ACS_data/24-00098_ACS_employment/ACS_15_5YR_S2301_with_ann.csv")
+
+```
+
+
+# Dept_35-00016
+
+```{r pressure, echo=FALSE}
+
+orlando_use_of_force <- read_csv("data/Dept_35-00016/35-00016_UOF-OIS-P.csv")
+# data contains use of force data from the orlando police department
+
+orlando_use_of_force <- as.data.frame(orlando_use_of_force)
+
+# provide name to column missing one, standardize column names and slice the first row with column name descriptions
+orlando_use_of_force <- rename(orlando_use_of_force, incident_type = ...4) %>%
+  clean_names() %>%
+  slice(-1)
+
+# data contains 54 police use of force instances between 2009 and 2017
+
+orlando_use_of_force %>%
+  group_by(incident_unique_identifier) %>%
+  summarise(count = n()) 
+
+# incident_unique_identifier = good, incident_date = good, location_full_street_address_or_intersection = good, incident_type = good, number_of_officers = good, everything else = good once race = fixed, see below
+
+# change officer race to be the acronym + align with officer race category + make "Unk" values into NAs
+orlando_use_of_force <- orlando_use_of_force %>%
+  mutate(subject_race = case_when(subject_race == "Black, Black" ~ "B, B",
+                                  subject_race == "Black" ~ "B",
+                                  subject_race == "White" ~ "W",
+                                  subject_race == "Other" ~ "O",
+                                  TRUE ~ subject_race),
+         across(where(is.character), ~na_if(., "Unk")))
+
+orlando_districts_shapefile <- st_read("data/Dept_35-00016/35-00016_Shapefiles/OrlandoPoliceDistricts.shp")
+orlando_divisions_shapefile <- st_read("data/Dept_35-00016/35-00016_Shapefiles/OrlandoPoliceDivisions.shp")
+orlando_sectors_shapefile <- st_read("data/Dept_35-00016/35-00016_Shapefiles/OrlandoPoliceSectors.shp")
+
+orlando_districts_shapefile %>%
+  ggplot() + 
+  geom_sf() + 
+  theme_minimal()
+
+orlando_divisions_shapefile %>%
+  ggplot() + 
+  geom_sf() + 
+  theme_minimal()
+
+orlando_sectors_shapefile %>%
+  ggplot() + 
+  geom_sf() + 
+  theme_minimal()
+
+# the shapefiles are just showing three different categorizations of orlando police department jurisdictions 
+
+orlando_acs_education_metadata <- read_csv("data/Dept_35-00016/35-00016_ACS_data/35-00016_ACS_education-attainment/ACS_15_5YR_S1501_with_ann.csv")
+# metadata file contains all of the column names and what their values correspond to based on census descriptions
+
+orlando_acs_education_metadata <- read_csv("data/Dept_35-00016/35-00016_ACS_data/35-00016_ACS_education-attainment/ACS_15_5YR_S1501_metadata.csv")
+
+```
+
+# Dept_35-00103
+
+```{r}
+
+charlotte_use_of_force <- read_csv("data/Dept_35-00103/35-00103_UOF-OIS-P_prepped.csv")
+# data is from the charlotte police department
+# data contains 76 police use of force instances between 2005 and 2018
+
+charlotte_use_of_force <- charlotte_use_of_force %>%
+  clean_names() %>%
+  slice(-1) %>%
+  mutate(across(where(is.character), ~na_if(., "Unknown")))
+
+charlotte_use_of_force %>%
+  group_by(subject_race) %>%
+  summarise(count = n())
+
+charlotte_sectors_shapefile <- st_read("data/Dept_35-00103/35-00103_Shapefiles/CMPD_Police_Division_Offices.shp")
+
+charlotte_sectors_shapefile %>%
+  ggplot() + 
+  geom_sf() + 
+  theme_minimal()
+
+```
