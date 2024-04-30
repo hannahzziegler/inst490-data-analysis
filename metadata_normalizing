@@ -1,0 +1,201 @@
+## Code Inspo: Shivam Bansal (https://www.kaggle.com/code/shivamb/1-solution-workflow-science-of-policing-equity)
+## Global Parameters
+ct_base_path = "../input/census-tracts/cb_2017_<NUM>_tract_500k/cb_2017_<NUM>_tract_500k.shp"
+external_datasets_path = "../input/external-datasets-cpe/"
+_base_dir = "../input/data-science-for-good/cpe-data/"
+_root_dir = "CPE_ROOT/"
+## define the new directory names and mandatory shape files 
+mandatory_shapefiles = ["shp", "shx", "dbf", "prj"]
+new_dirs = ["shapefiles", "events", "metrics", "metrics_meta"]
+
+## Utility function to cleanup the environment
+def _cleanup_environment():
+    if os.path.exists(_root_dir):
+        !rm -r CPE_ROOT
+        pass
+    return None
+
+## Function to create a new repository structure 
+def _create_repository_structure():            
+    ## refresh environment 
+    _cleanup_environment()
+    
+    ## list of all departments whose raw data is available
+    depts = [_ for _ in os.listdir(_base_dir) if "Dept" in _]
+    
+    ## master folder
+    os.mkdir(_root_dir) 
+    for dept in depts:
+
+        ## every department folder 
+        os.mkdir(_root_dir + "/" + dept)         
+        for _dir in new_dirs:
+        
+            ## sub directories for - shapefiles, acsdata, metrics, metrics-meta
+            os.mkdir(_root_dir + "/" + dept + "/" + _dir + "/")            
+    print ("Status : Directory Structured Created")
+
+
+
+#############################################################
+
+
+
+## Function to standardize the shape files
+def _standardize_shapefiles():
+    depts = [_ for _ in os.listdir(_base_dir) if "Dept" in _]
+    for dept in depts:    
+        ## Step1: Configure the old and new path
+        shp_dir = dept.replace("Dept_","") + "_Shapefiles/"
+        old_pth = _base_dir + dept + "/" + shp_dir
+        new_pth = _root_dir + dept + "/" + "shapefiles/"
+
+        ## Step2: Standardize the file names and move to new path 
+        _files = os.listdir(old_pth)
+        for _file in _files:
+            if _file[-3:].lower() not in mandatory_shapefiles:
+                continue
+            ext = ".".join(_file.split(".")[1:]).lower()
+            new_name = "department." + ext
+            shutil.copy(old_pth+_file, new_pth+new_name)
+
+        ## Step3: Fix Erroroneus shapefiles
+        fix_flag = _fix_errors_shapefiles(new_pth, dept)
+        
+    print ("Status : Shapefile Standardization Complete")
+    return None
+    
+## Function to standardize the ACS data
+## cleaned names corresponding to given raw metric names
+acs_metrics_dic = { 'owner-occupied-housing' : 'housing', 'education-attainment' : 'education', 'employment' : 'employment', 'education-attainment-over-25' : 'education25', 'race-sex-age' : 'race-sex-age', 'poverty' : 'poverty', 'income' : 'income' }
+metrics_names = list(acs_metrics_dic.values())
+
+## function to cleanup and move the ACS data
+def _standardize_acs():
+    depts = [_ for _ in os.listdir(_base_dir) if "Dept" in _]
+    for dept in depts:  
+        ## Step1: Configure the old and new path
+        acs_dir = dept.replace("Dept_","") + "_ACS_data"
+        old_dirs = os.listdir(_base_dir + dept +"/"+ acs_dir)
+        new_dirs = [f.replace(dept.replace("Dept_",""),"") for f in old_dirs]
+        new_dirs = [f.replace("_ACS_","") for f in new_dirs]
+        
+        ## Step2: Move all ACS datafiles
+        for j, metric in enumerate(old_dirs):
+            metric_files = os.listdir(_base_dir + dept +"/"+ acs_dir +"/"+ metric)
+            _file = [f for f in metric_files if "metadata" not in f][0]
+            _meta = [f for f in metric_files if "metadata" in f][0]
+
+            ## Step3: Standardize / Cleanup the name 
+            for name, clean_name in acs_metrics_dic.items():
+                if "25" in metric:
+                    cname = "education25"
+                if name in metric:
+                    cname = clean_name     
+
+            ## Step4.1 : Move Metric File
+            old_path = _base_dir + dept +"/"+ acs_dir +"/"+ metric +"/"+ _file
+            new_path = _root_dir + dept +"/metrics/" + cname + ".csv"
+            shutil.copy(old_path, new_path)
+
+            ## Step4.2 : Move Metrics meta files
+            old_path = _base_dir + dept +"/"+ acs_dir +"/"+ metric +"/"+ _meta
+            new_path = _root_dir + dept +"/metrics_meta/" + cname + ".csv"
+            shutil.copy(old_path, new_path)
+
+    print ("Status : Standardization of Metrics complete")
+
+
+
+#############################################################
+
+
+
+  ## Function to read a shapefile
+def _read_shape_gdf(_dept):
+    shape_pth = _root_dir + _dept + "/shapefiles/department.shp"
+    ## ensure that CRS are consistent
+    shape_gdf = gpd.read_file(shape_pth).to_crs(epsg=4326)
+    return shape_gdf
+
+## Read the CT File
+def _read_ctfile(_dept):
+    ## find the corresponding CT number from the config
+    _ct = depts_config[_dept]["ct_num"]
+    ## generate the base CT path 
+    ct_path = ct_base_path.replace("<NUM>", _ct)
+    ## load the geo data frame for CT 
+    state_cts = gpd.read_file(ct_path).to_crs(epsg='4326')
+    return state_cts
+
+## Function to get the centroid of a polygon
+def _get_latlong_point(point):
+    _ll = str(point).replace("POINT (","").replace(")", "")
+    _ll = list(reversed([float(_) for _ in _ll.split()]))
+    return _ll
+
+## Function to plot a shapefile
+def _plot_shapefile_base(shape_gdf, _dept, overlapped_cts = {}):
+    ## obtain the center most point of the map 
+    
+    if "center_ll" not in depts_config[_dept]:
+        center_pt = shape_gdf.geometry.centroid[0]
+        center_pt = _get_latlong_point(center_pt)
+    else:
+        center_pt = depts_config[_dept]["center_ll"]
+    
+    ## initialize the folium map 
+    mapa = folium.Map(center_pt,  zoom_start=10, tiles='CartoDB dark_matter')
+    if len(overlapped_cts) == 0:
+        ## only the base map
+        folium.GeoJson(shape_gdf).add_to(mapa)
+    else:
+        ## overlapped map
+        ct_style = {'fillColor':"red",'color':"red",'weight':1,'fillOpacity':0.5}
+        base_style = {'fillColor':"blue",'color':"blue",'weight':1,'fillOpacity':0.5}
+        folium.GeoJson(overlapped_cts, style_function = lambda feature: ct_style).add_to(mapa)
+        folium.GeoJson(shape_gdf, style_function = lambda feature: base_style).add_to(mapa)
+    return mapa
+
+
+
+#############################################################
+
+
+
+##Create shapefile visualization
+_dept = "Dept_24-00013"
+_police_config1 = { 'event_type' : 'uof', "years_to_process" : [2012, 2013, 2014, 2015, 2016, 2017]}
+_police_config2 = { "path" : "minneapolis_stops/Minneapolis_Stops.csv", "years_to_process" : [2016] , 'identifier' : "policePrecinct" , 'gender_col' : 'gender', 'race_col' : 'race', 'date_col' : 'responseDate', 'event_type' : 'vstops'}
+
+pipeline_resp = _execute_district_pipeline(_dept, _police_config1, _police_config2)
+_view_output(pipeline_resp, _dept)
+
+"""
+About the Code in this Cell 
+
+This code produces the folium map as the base map, on which we plot three items : district polygons, aggregated number of total incidents by district, recent incidents
+"""
+
+## Add some more features
+police_df["total_incidents"] = police_df["uof_sex"].apply(lambda x : sum(x.values()))
+police_df["total_vstops"] = police_df["vstops_sex"].apply(lambda x : sum(x.values()))
+
+## Plot the base map
+center_pt = police_df.geometry[0].centroid
+center_ll = _get_latlong_point(center_pt)
+mapa = folium.Map(center_ll, zoom_start=10.5, tiles='CartoDB dark_matter')
+folium.GeoJson(shape_gdf, style_function = lambda feature: { 'fillColor': "blue", 'color' : "blue", 'weight' : 1, 'fillOpacity' : 0.2}).add_to(mapa)
+
+## plot recent incidents 
+for i, row in events_df[events_df["INCIDENT_YEAR"] == 2015].iterrows():
+    folium.CircleMarker([float(row["LOCATION_LATITUDE"]), float(row["LOCATION_LONGITUDE"])], 
+                        radius=1, color='red').add_to(mapa)
+
+## plot aggregated number of total incidents
+for i, row in police_df.iterrows():
+    dist_ll = _get_latlong_point(row["geometry"].centroid)
+    folium.CircleMarker(dist_ll, popup="<b>District ID:</b>" + row["LOCATION_DISTRICT"] +"<br> <b>UseOfForce:</b> "+str(row["total_incidents"]), 
+                       radius=float(row["total_incidents"])*0.01, color='green', fill=True).add_to(mapa)
+    
+mapa
